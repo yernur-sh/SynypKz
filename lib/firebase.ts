@@ -3,10 +3,6 @@ import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
 import {
   getFirestore,
   Firestore,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentSingleTabManager,
-  enableIndexedDbPersistence,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -21,27 +17,7 @@ const firebaseConfig = {
 export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth: Auth = getAuth(app);
 
-// Firestore — офлайн кэшпен (persistentLocalCache) жылдам іске қосу
-// Бірінші рет желіден келген мәліметтер IndexedDB-ға жазылады, келесі ашуда кэштен бірден (0-50мс) көрсетіледі,
-// сосын фондық түрде сервермен синхрондалады. WebChannel баяу желіде long-polling-ге ауысады.
-let _db: Firestore;
-try {
-  _db = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentSingleTabManager(undefined),
-    }),
-    experimentalAutoDetectLongPolling: true,
-  } as any);
-} catch {
-  // Егер бұрын getFirestore шақырылған болса (HMR), fallback
-  _db = getFirestore(app);
-  if (typeof window !== 'undefined') {
-    enableIndexedDbPersistence(_db).catch((err) => {
-      if (err?.code !== 'failed-precondition' && err?.code !== 'unimplemented') {
-        console.warn('Firestore persistence қатесі', err);
-      }
-    });
-  }
-}
-export const db: Firestore = _db;
+// Тұрақты браузер кэші әдейі өшірілген: серверде өшірілген жазбалар келесі
+// ашылғанда ескі IndexedDB/localStorage көшірмесінен қайта көрінбеуі керек.
+export const db: Firestore = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();

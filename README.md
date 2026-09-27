@@ -34,12 +34,12 @@ NEXT_PUBLIC_FIREBASE_APP_ID=...
 
 ```ts
 export const HOMEROOM_TEACHER_EMAIL = 'ainur@school.kz'; // сынып жетекшісі
-export const TEACHER_EMAILS = [HOMEROOM_TEACHER_EMAIL, 'teacher@school.kz'];
+export const TEACHER_REGISTRATION_CODE = 'smkz';
 ```
 
 | Рөл | Құқықтары |
 |---|---|
-| **Сынып жетекшісі** | Сынып хабарламаларын жариялау (тек ол), кесте, тапсырма, жетістік, кездесулер |
+| **Мұғалім** | Сынып хабарламаларын жариялау, кесте, тапсырма, жетістік, кездесулер |
 | **Мұғалім** | Кесте, үй тапсырмасы + бағалау, жетістіктер, ата-ана өтініштері |
 | **Оқушы** | Кесте, тапсырма тапсыру, чат, жетістіктер |
 | **Ата-ана** | Кесте, хабарламалар, мұғаліммен кездесуге жазылу |
@@ -51,7 +51,7 @@ export const TEACHER_EMAILS = [HOMEROOM_TEACHER_EMAIL, 'teacher@school.kz'];
 | Коллекция | Сипаттама |
 |---|---|
 | `users/{uid}` | Профиль: name, email, role, classId, isHomeroom, studentName |
-| `announcements` | Сынып хабарламалары (тек сынып жетекшісі жазады) |
+| `announcements` | Сынып хабарламалары (кез келген мұғалім жазады) |
 | `homework` + `homework/{id}/submissions/{uid}` | Тапсырмалар мен оқушы жауаптары, бағалары |
 | `achievements` | Оқушы жетістіктері, XP ұпайлары |
 | `messages` | Сынып чаты |

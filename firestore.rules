@@ -29,12 +29,12 @@ service cloud.firestore {
     // ⚠️ Сабақ кестесі Firestore-да сақталмайды —
     // ол `lib/schedule-data.ts` файлында код арқылы қойылған.
 
-    // Сынып хабарламалары — тек сынып жетекшісі жариялайды.
-    // Өшіру/өңдеу: сынып жетекшісі мен мұғалімдер КЕЗ КЕЛГЕН хабарламаны,
+    // Сынып хабарламаларын кез келген мұғалім жариялайды.
+    // Өшіру/өңдеу: мұғалімдер КЕЗ КЕЛГЕН хабарламаны,
     // қалғандары тек өзі жариялағанын өзгерте алады.
     match /announcements/{id} {
       allow read: if true;
-      allow create: if isHomeroom();
+      allow create: if isTeacher();
       allow update, delete: if isHomeroom()
         || isTeacher()
         || (signedIn() && resource.data.authorId == request.auth.uid);

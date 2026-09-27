@@ -7,6 +7,7 @@ import { useApp } from '@/lib/store';
 import { CLASS_LABEL } from '@/lib/config';
 import { canAccess } from '@/lib/access';
 import { Avatar } from '@/components/ui';
+import PasswordChangeModal from '@/components/auth/PasswordChangeModal';
 import {
   Home,
   CalendarDays,
@@ -21,6 +22,7 @@ import {
   UserPlus,
   HeartHandshake,
   Sparkles,
+  KeyRound,
 } from 'lucide-react';
 
 // Реті: «Тәрбие сағаты» мен «ЖИ-көмекші» барлық рөлде ең соңында тұрады.
@@ -43,10 +45,14 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function Header() {
   const pathname = usePathname();
-  const { user, loading, openAuth, logout } = useApp();
+  const { user, firebaseUser, loading, openAuth, logout } = useApp();
   const nav = NAV.filter((item) => canAccess(user?.role, item.href));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const canChangePassword = firebaseUser?.providerData.some(
+    (provider) => provider.providerId === 'password'
+  );
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -125,6 +131,17 @@ export default function Header() {
                     <p className="truncate text-sm font-bold text-slate-800">{user.name}</p>
                     <p className="truncate text-xs text-slate-400">{user.email}</p>
                   </div>
+                  {canChangePassword && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setPasswordOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-sky-600"
+                    >
+                      <KeyRound className="h-4 w-4" /> Құпиясөзді өзгерту
+                    </button>
+                  )}
                   <button
                     onClick={() => logout()}
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
@@ -177,6 +194,7 @@ export default function Header() {
           </div>
         </nav>
       )}
+      <PasswordChangeModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </header>
   );
 }

@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { Modal } from '@/components/ui';
 import { UserRole } from '@/lib/types';
-import { GraduationCap, School, Users, Loader2 } from 'lucide-react';
+import { GraduationCap, School, Users, Loader2, Eye, EyeOff } from 'lucide-react';
+import { TEACHER_REGISTRATION_CODE } from '@/lib/config';
 
 const ROLES: { key: UserRole; label: string; icon: any }[] = [
   { key: 'student', label: 'Оқушы', icon: GraduationCap },
@@ -21,6 +22,8 @@ export default function AuthModal() {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('student');
   const [studentName, setStudentName] = useState('');
+  const [teacherCode, setTeacherCode] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -30,7 +33,7 @@ export default function AuthModal() {
     setBusy(true);
     try {
       if (mode === 'login') await login(email, password);
-      else await register(name.trim(), email, password, role, studentName.trim());
+      else await register(name.trim(), email, password, role, studentName.trim(), teacherCode);
     } catch (err: any) {
       const code: string = err?.code || '';
       const map: Record<string, string> = {
@@ -39,6 +42,7 @@ export default function AuthModal() {
         'auth/weak-password': 'Құпиясөз кемінде 6 таңба болуы керек.',
         'auth/email-already-in-use': 'Бұл e-mail тіркелген. Кіріңіз.',
         'auth/popup-closed-by-user': 'Терезе жабылды.',
+        'auth/invalid-teacher-code': 'Мұғалім коды қате.',
       };
       setError(map[code] || err?.message || 'Қате шықты, қайталап көріңіз.');
     } finally {
@@ -86,9 +90,20 @@ export default function AuthModal() {
                 ))}
               </div>
               {role === 'teacher' && (
-                <p className="mt-1.5 text-[11px] text-slate-400">
-                  Мұғалім құқығы тек мектеп бекіткен e-mail-дарға беріледі.
-                </p>
+                <div className="mt-3">
+                  <label className="label">Мұғалім коды</label>
+                  <input
+                    className="input"
+                    value={teacherCode}
+                    onChange={(e) => setTeacherCode(e.target.value)}
+                    placeholder="Арнайы код"
+                    autoComplete="off"
+                    required
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    Мұғалім ретінде тіркелу үшін мектеп берген кодты жазыңыз.
+                  </p>
+                </div>
               )}
             </div>
             {role === 'parent' && (
@@ -119,15 +134,27 @@ export default function AuthModal() {
         </div>
         <div>
           <label className="label">Құпиясөз</label>
-          <input
-            type="password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••"
-            minLength={6}
-            required
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              className="input pr-11"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••"
+              minLength={6}
+              required
+            />
+            {mode === 'register' && (
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-400 hover:text-sky-600"
+                aria-label={showPassword ? 'Құпиясөзді жасыру' : 'Құпиясөзді көрсету'}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
         </div>
 
         {error && (
@@ -149,13 +176,26 @@ export default function AuthModal() {
           type="button"
           onClick={async () => {
             setError('');
+            setBusy(true);
             try {
-              await loginWithGoogle();
+              await loginWithGoogle(
+                mode === 'register' ? role : undefined,
+                mode === 'register' ? studentName : undefined,
+                mode === 'register' ? teacherCode : undefined,
+                mode === 'register' ? name : undefined
+              );
             } catch (err: any) {
               setError(err?.message || 'Google арқылы кіру сәтсіз.');
+            } finally {
+              setBusy(false);
             }
           }}
-          className="btn flex w-full items-center justify-center gap-2.5 border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          disabled={
+            busy ||
+            (mode === 'register' && role === 'teacher' && teacherCode.trim() !== TEACHER_REGISTRATION_CODE) ||
+            (mode === 'register' && role === 'parent' && !studentName.trim())
+          }
+          className="btn flex w-full items-center justify-center gap-2.5 border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />

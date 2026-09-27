@@ -30,7 +30,7 @@ import {
 type Tab = 'announcements' | 'chat';
 
 export default function CommunicationHub() {
-  const { isHomeroom, openAuth } = useApp();
+  const { isTeacher, openAuth } = useApp();
   const [tab, setTab] = useState<Tab>('announcements');
 
   const tabs: { key: Tab; label: string; icon: any }[] = [
@@ -62,7 +62,7 @@ export default function CommunicationHub() {
         ))}
       </div>
 
-      {tab === 'announcements' && <Announcements canPost={isHomeroom} />}
+      {tab === 'announcements' && <Announcements canPost={isTeacher} />}
       {tab === 'chat' && <Chat onNeedAuth={() => openAuth('login')} />}
     </div>
   );
@@ -94,7 +94,7 @@ function Announcements({ canPost }: { canPost: boolean }) {
       setDelId(null);
     }
   };
-  // limit 30 — соңғы 30 хабарлама жеткілікті, Firestore-дан тез (кэштен 0-80мс)
+  // Соңғы 30 хабарлама жеткілікті.
   const { data, loading } = useCollection<Announcement>('announcements', 'createdAt', 'desc', 30);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -145,7 +145,7 @@ function Announcements({ canPost }: { canPost: boolean }) {
           ))}
         </div>
       ) : data.length === 0 ? (
-        <EmptyState title="Әзірге хабарлама жоқ" description="Сынып жетекшісі жариялаған хабарламалар осында шығады." />
+        <EmptyState title="Әзірге хабарлама жоқ" description="Мұғалім жариялаған хабарламалар осында шығады." />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {data.map((a, i) => (
@@ -227,7 +227,7 @@ function Announcements({ canPost }: { canPost: boolean }) {
 
 function Chat({ onNeedAuth }: { onNeedAuth: () => void }) {
   const { user } = useApp();
-  // limit 120 — соңғы 120 хабарлама (екі арна), кэшпен бірден көрінеді
+  // Соңғы 120 хабарлама (екі арна) алынады.
   const { data: allMessages, loading } = useCollection<Message>('messages', 'createdAt', 'asc', 120);
   // Тек жалпы чат хабарламалары (ата-ана чаты бөлек, channel === 'parent' көрсетілмейді)
   const messages = allMessages.filter((m) => m.channel !== 'parent');

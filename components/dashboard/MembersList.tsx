@@ -10,8 +10,8 @@ type Tab = 'student' | 'parent';
 
 export default function MembersList() {
   const { user, openAuth } = useApp();
-  // limit 100 — тіркелгендер тізімі кэшпен бірден
-  const { data, loading, error } = useCollection<UserProfile>('users', 'createdAt', 'desc', 100);
+  // Бір сұрауда ең көбі 100 тіркелген қолданушы жеткілікті.
+  const { data, loading, error } = useCollection<UserProfile>('users', 'createdAt', 'desc', 100, !!user);
   const [tab, setTab] = useState<Tab>('student');
   const [q, setQ] = useState('');
 

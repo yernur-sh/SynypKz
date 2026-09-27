@@ -15,6 +15,9 @@ import {
   signInWithPopup,
   signOut,
   updateProfile,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   User,
 } from 'firebase/auth';
 import {
@@ -29,12 +32,8 @@ import {
   QueryConstraint,
 } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
-import { CLASS_ID, HOMEROOM_TEACHER_EMAIL, TEACHER_EMAILS } from './config';
+import { CLASS_ID, HOMEROOM_TEACHER_EMAIL, TEACHER_REGISTRATION_CODE } from './config';
 import type { UserProfile, UserRole } from './types';
-
-function resolveRole(email: string, requested: UserRole): UserRole {
-  return TEACHER_EMAILS.includes(email.toLowerCase()) ? 'teacher' : requested;
-}
 
 interface AppContextType {
   user: UserProfile | null;
@@ -51,9 +50,16 @@ interface AppContextType {
     email: string,
     password: string,
     role: UserRole,
-    studentName?: string
+    studentName?: string,
+    teacherCode?: string
   ) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: (
+    role?: UserRole,
+    studentName?: string,
+    teacherCode?: string,
+    name?: string
+  ) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -64,6 +70,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null);
+  const googleRegistration = React.useRef<{
+    role: UserRole;
+    studentName?: string;
+    name?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    // Бұрынғы нұсқа қалдырған қолмен жасалған ескі Firestore кэштерін бір рет тазалау.
+    try {
+      Object.keys(localStorage)
+        .filter((key) => key === 'synypkz-user' || key.startsWith('fs-cache:'))
+        .forEach((key) => localStorage.removeItem(key));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -76,43 +96,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch {}
         return;
       }
-      // Алдымен кэштен бірден көрсету (0мс) — бет бірден ашылады
       try {
-        const cached = localStorage.getItem('synypkz-user');
-        if (cached) {
-          const parsed = JSON.parse(cached) as UserProfile;
-          if (parsed.id === fbUser.uid) {
-            setUser(parsed);
-            setLoading(false);
-          }
+        const ref = doc(db, 'users', fbUser.uid);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) {
+          const email = (fbUser.email || '').toLowerCase();
+          const pending = googleRegistration.current;
+          const requestedRole = pending?.role ?? 'student';
+          const profile: UserProfile = {
+            id: fbUser.uid,
+            name: pending?.name || fbUser.displayName || email.split('@')[0],
+            email,
+            role: requestedRole,
+            classId: CLASS_ID,
+            isHomeroom: email === HOMEROOM_TEACHER_EMAIL,
+            ...(requestedRole === 'parent' && pending?.studentName
+              ? { studentName: pending.studentName }
+              : {}),
+            createdAt: Date.now(),
+          };
+          await setDoc(ref, profile);
+          setUser(profile);
+        } else {
+          setUser({ id: fbUser.uid, ...(snap.data() as Omit<UserProfile, 'id'>) });
         }
-      } catch {}
-      const ref = doc(db, 'users', fbUser.uid);
-      let snap = await getDoc(ref);
-      if (!snap.exists()) {
-        const email = (fbUser.email || '').toLowerCase();
-        const profile: UserProfile = {
-          id: fbUser.uid,
-          name: fbUser.displayName || email.split('@')[0],
-          email,
-          role: resolveRole(email, 'student'),
-          classId: CLASS_ID,
-          isHomeroom: email === HOMEROOM_TEACHER_EMAIL,
-          createdAt: Date.now(),
-        };
-        await setDoc(ref, profile);
-        setUser(profile);
-        try {
-          localStorage.setItem('synypkz-user', JSON.stringify(profile));
-        } catch {}
-      } else {
-        const profile = { id: fbUser.uid, ...(snap.data() as Omit<UserProfile, 'id'>) } as UserProfile;
-        setUser(profile);
-        try {
-          localStorage.setItem('synypkz-user', JSON.stringify(profile));
-        } catch {}
+      } catch (error) {
+        console.error('Профильді жүктеу қатесі', error);
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -127,8 +140,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     role: UserRole,
-    studentName?: string
+    studentName?: string,
+    teacherCode?: string
   ) => {
+    if (role === 'teacher' && teacherCode?.trim() !== TEACHER_REGISTRATION_CODE) {
+      throw Object.assign(new Error('Мұғалім коды қате.'), { code: 'auth/invalid-teacher-code' });
+    }
     const cleanEmail = email.trim().toLowerCase();
     const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
     await updateProfile(cred.user, { displayName: name });
@@ -136,7 +153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: cred.user.uid,
       name,
       email: cleanEmail,
-      role: resolveRole(cleanEmail, role),
+      role,
       classId: CLASS_ID,
       isHomeroom: cleanEmail === HOMEROOM_TEACHER_EMAIL,
       ...(role === 'parent' && studentName ? { studentName } : {}),
@@ -147,9 +164,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAuthModal(null);
   };
 
-  const loginWithGoogle = async () => {
-    await signInWithPopup(auth, googleProvider);
-    setAuthModal(null);
+  const loginWithGoogle = async (
+    role?: UserRole,
+    studentName?: string,
+    teacherCode?: string,
+    name?: string
+  ) => {
+    if (role === 'teacher' && teacherCode?.trim() !== TEACHER_REGISTRATION_CODE) {
+      throw Object.assign(new Error('Мұғалім коды қате.'), { code: 'auth/invalid-teacher-code' });
+    }
+    googleRegistration.current = role
+      ? {
+          role,
+          studentName: studentName?.trim() || undefined,
+          name: name?.trim() || undefined,
+        }
+      : null;
+    try {
+      const credential = await signInWithPopup(auth, googleProvider);
+      const ref = doc(db, 'users', credential.user.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        const email = (credential.user.email || '').toLowerCase();
+        const requestedRole = role ?? 'student';
+        const profile: UserProfile = {
+          id: credential.user.uid,
+          name: name?.trim() || credential.user.displayName || email.split('@')[0],
+          email,
+          role: requestedRole,
+          classId: CLASS_ID,
+          isHomeroom: email === HOMEROOM_TEACHER_EMAIL,
+          ...(role === 'parent' && studentName?.trim() ? { studentName: studentName.trim() } : {}),
+          createdAt: Date.now(),
+        };
+        await setDoc(ref, profile);
+        setUser(profile);
+      } else if (role) {
+        const existing = { id: credential.user.uid, ...(snap.data() as Omit<UserProfile, 'id'>) };
+        const updated: UserProfile = {
+          ...existing,
+          role,
+        };
+        if (role === 'parent' && studentName?.trim()) updated.studentName = studentName.trim();
+        else delete updated.studentName;
+        await setDoc(ref, updated);
+        setUser(updated);
+      }
+      setAuthModal(null);
+    } finally {
+      googleRegistration.current = null;
+    }
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    const current = auth.currentUser;
+    if (!current?.email) throw new Error('Қолданушы табылмады.');
+    await reauthenticateWithCredential(
+      current,
+      EmailAuthProvider.credential(current.email, currentPassword)
+    );
+    await updatePassword(current, newPassword);
   };
 
   const logout = async () => {
@@ -169,6 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login,
       register,
       loginWithGoogle,
+      changePassword,
       logout,
     }),
     [user, firebaseUser, loading, authModal]
@@ -183,35 +258,26 @@ export function useApp() {
   return ctx;
 }
 
-/** Firestore коллекциясын нақты уақытта тыңдайтын hook — жылдам, кэшпен (hydration қатесіз). */
+/** Firestore коллекциясын нақты уақытта тыңдайтын hook. */
 export function useCollection<T extends { id: string }>(
   path: string,
   orderField?: string,
   direction: 'asc' | 'desc' = 'desc',
-  limitCount?: number
+  limitCount?: number,
+  enabled = true
 ) {
-  const cacheKey = `fs-cache:${path}:${orderField ?? ''}:${direction}:${limitCount ?? ''}`;
-
-  // Hydration қатесін болдырмау үшін бастапқы мән әрқашан [] / true — сервер мен клиентте бірдей.
-  // Кэштен оқу тек useEffect ішінде (client mount кейін) жасалады, сонда сервер-дегі "0" мен клиент-тегі "1" сәйкессіздігі болмайды.
   const [data, setData] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Mount кейін кэштен бірден көрсету — бет бірден жылдам ашылады, бірақ hydration-дан кейін
-    let hasCache = false;
-    try {
-      const raw = localStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as T[];
-        if (Array.isArray(parsed) && parsed.length) {
-          setData(parsed);
-          setLoading(false);
-          hasCache = true;
-        }
-      }
-    } catch {}
+    if (!enabled) {
+      setData([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
 
     const constraints: QueryConstraint[] = [];
     if (orderField) constraints.push(orderBy(orderField, direction));
@@ -219,41 +285,23 @@ export function useCollection<T extends { id: string }>(
 
     const q = query(collection(db, path), ...constraints);
 
-    // includeMetadataChanges: кэштен келгенде бірден (0-100мс) хабарлайды, сосын серверден жаңартады
     const unsub = onSnapshot(
       q,
-      { includeMetadataChanges: true },
       (snap) => {
         const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as T[];
-        const isFromCache = snap.metadata.fromCache;
-
-        // Алғашқы ашуда кэш бос болса, бос кэш snapshot-ты елемей, серверді күту — әйтпесе EmptyState бірден көрініп, мәлімет жоқ сияқты болады
-        if (isFromCache && docs.length === 0 && !hasCache) {
-          // loading true күйінде қалдыру — skeleton көрсетіледі, серверден келгенде ауысады
-          return;
-        }
-
         setData(docs);
         setError(null);
         setLoading(false);
-        // Келесі ашу үшін localStorage-қа сақтау (жылдам іске қосу)
-        try {
-          if (docs.length) {
-            localStorage.setItem(cacheKey, JSON.stringify(docs.slice(0, 50)));
-          } else if (!isFromCache) {
-            localStorage.removeItem(cacheKey);
-          }
-        } catch {}
       },
       (err) => {
         console.error('Firestore error', path, err);
         setError(err.message);
-        // Кэш бар болса loading-ді жасырмау — кэш көрсетіліп тұр
-        if (!hasCache) setLoading(false);
+        setData([]);
+        setLoading(false);
       }
     );
     return () => unsub();
-  }, [path, orderField, direction, limitCount, cacheKey]);
+  }, [path, orderField, direction, limitCount, enabled]);
 
   return { data, loading, error };
 }

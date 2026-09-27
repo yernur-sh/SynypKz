@@ -11,7 +11,7 @@ import { Users, Send } from 'lucide-react';
 
 export default function ParentPortal() {
   const { user, openAuth } = useApp();
-  // Барлық хабарламаларды алып, тек ата-ана чатын (channel === 'parent') сүзу — limit 120, кэшпен тез
+  // Соңғы хабарламаларды алып, тек ата-ана чатын (channel === 'parent') сүзу.
   const { data: allMessages, loading } = useCollection<Message>('messages', 'createdAt', 'asc', 120);
   const messages = allMessages.filter((m) => m.channel === 'parent');
   const [text, setText] = useState('');

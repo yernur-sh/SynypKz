@@ -25,7 +25,7 @@ import {
 
 export default function Dashboard() {
   const { user, openAuth, loading: authLoading } = useApp();
-  // limit қосылды —Firestore-дан тек соңғы 6 жазба алынады, кэш + persistentLocalCache арқасында бірден (0-80мс) көрінеді
+  // Басты бетке Firestore-дан тек соңғы 6 жазба қажет.
   const { data: announcements, loading: annLoading } = useCollection<Announcement>('announcements', 'createdAt', 'desc', 6);
   const achievements = ACHIEVEMENTS; // жетістіктер тізімі кодта (lib/achievements-data.ts)
 
@@ -160,7 +160,7 @@ export default function Dashboard() {
               ))}
             </div>
           ) : announcements.length === 0 ? (
-            <EmptyState title="Хабарлама жоқ" description="Сынып жетекшісі жариялағанда осында шығады." />
+            <EmptyState title="Хабарлама жоқ" description="Мұғалім жариялағанда осында шығады." />
           ) : (
             <ul className="space-y-2.5">
               {announcements.slice(0, canChat ? 4 : 6).map((a) => (
