@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   CLASS_HOUR_PLAN,
   DIRECTIONS,
@@ -27,41 +27,57 @@ import {
   Sparkles,
   Plus,
   Loader2,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
+
+function isCustomTopic(topic: ClassHourTopic): topic is ClassHourCustomTopic {
+  return 'id' in topic;
+}
 
 function TopicCard({
   topic,
   defaultOpen = false,
+  onEdit,
+  onDelete,
+  deleting = false,
 }: {
   topic: ClassHourTopic;
   defaultOpen?: boolean;
+  onEdit?: (topic: ClassHourCustomTopic) => void;
+  onDelete?: (topic: ClassHourCustomTopic) => void;
+  deleting?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const d = directionOf(topic.direction);
+  const customTopic = isCustomTopic(topic) ? topic : null;
 
   return (
     <div className={`overflow-hidden rounded-2xl border ${d.soft} transition`}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left"
-      >
-        <span
-          className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${d.gradient} text-base shadow-sm`}
+      <div className="flex items-start px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-start gap-3 px-2 py-2 text-left"
         >
-          {d.emoji}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className={`block text-[11px] font-bold uppercase tracking-wide ${d.text}`}>
-            {d.label}
+          <span
+            className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${d.gradient} text-base shadow-sm`}
+          >
+            {d.emoji}
           </span>
-          <span className="mt-0.5 block text-sm font-semibold leading-snug text-slate-800">
-            {topic.title}
+          <span className="min-w-0 flex-1">
+            <span className={`block text-[11px] font-bold uppercase tracking-wide ${d.text}`}>
+              {d.label}
+            </span>
+            <span className="mt-0.5 block text-sm font-semibold leading-snug text-slate-800">
+              {topic.title}
+            </span>
           </span>
-        </span>
-        <ChevronDown
-          className={`mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
+          <ChevronDown
+            className={`mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </button>
+      </div>
 
       {open && (
         <div className="animate-fade-in space-y-4 border-t border-white/70 bg-white/70 px-4 py-4">
@@ -96,13 +112,52 @@ function TopicCard({
               ))}
             </ul>
           </div>
+
+          {/* Өзгерту және өшіру батырмалары ашылмалы блоктың ең астына жылжытылды */}
+          {customTopic && onEdit && onDelete && (
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200/60 pt-3">
+              <button
+                type="button"
+                onClick={() => onEdit(customTopic)}
+                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-50"
+                disabled={deleting}
+              >
+                <Pencil className="h-3.5 w-3.5" /> Өзгерту
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(customTopic)}
+                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Өшіру
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function WeekBlock({ week, highlight }: { week: ClassHourWeek; highlight: boolean }) {
+function WeekBlock({
+  week,
+  highlight,
+  onEdit,
+  onDelete,
+  deletingId,
+}: {
+  week: ClassHourWeek;
+  highlight: boolean;
+  onEdit?: (topic: ClassHourCustomTopic) => void;
+  onDelete?: (topic: ClassHourCustomTopic) => void;
+  deletingId?: string | null;
+}) {
   const past = isPastWeek(week);
 
   return (
@@ -151,7 +206,14 @@ function WeekBlock({ week, highlight }: { week: ClassHourWeek; highlight: boolea
 
       <div className="space-y-2.5 p-3">
         {week.topics.map((t, i) => (
-          <TopicCard key={i} topic={t} defaultOpen={highlight && week.topics.length === 1} />
+          <TopicCard
+            key={isCustomTopic(t) ? t.id : i}
+            topic={t}
+            defaultOpen={highlight && week.topics.length === 1}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            deleting={isCustomTopic(t) && deletingId === t.id}
+          />
         ))}
       </div>
     </section>
@@ -177,6 +239,9 @@ export default function ClassHourView() {
   const [questions, setQuestions] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
+  const [editingTopic, setEditingTopic] = useState<ClassHourCustomTopic | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const [optimisticTopics, setOptimisticTopics] = useState<ClassHourCustomTopic[]>([]);
 
   useEffect(() => {
@@ -226,15 +291,66 @@ export default function ClassHourView() {
   const totalTopics = plan.reduce((total, item) => total + item.topics.length, 0);
   const weeksWithTopics = plan.filter((item) => item.topics.length > 0).length;
 
+  const clearForm = () => {
+    setTitle('');
+    setAbout('');
+    setPoints('');
+    setQuestions('');
+    setDirection('');
+    setEditingTopic(null);
+    setFormError('');
+  };
+
+  const openCreateForm = () => {
+    clearForm();
+    setMonth(staticCurrent?.month ?? 'september');
+    setWeek(staticCurrent?.week ?? 1);
+    setFormOpen(true);
+  };
+
+  const openEditForm = (topic: ClassHourCustomTopic) => {
+    setEditingTopic(topic);
+    setMonth(topic.month);
+    setWeek(topic.week);
+    setDirection(topic.direction);
+    setTitle(topic.title);
+    setAbout(topic.about);
+    setPoints(topic.points.join('\n'));
+    setQuestions(topic.questions.join('\n'));
+    setFormError('');
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    if (busy) return;
+    setFormOpen(false);
+    clearForm();
+  };
+
+  const removeTopic = async (topic: ClassHourCustomTopic) => {
+    if (deletingId || !window.confirm(`«${topic.title}» тақырыбын өшіресіз бе?`)) return;
+    setDeleteError('');
+    setDeletingId(topic.id);
+    try {
+      await deleteDoc(doc(db, 'classHourTopics', topic.id));
+      setOptimisticTopics((items) => items.filter((item) => item.id !== topic.id));
+    } catch (error: any) {
+      setDeleteError(
+        error?.code === 'permission-denied'
+          ? 'Тақырыпты өшіруге рұқсат жоқ. Firestore ережелерін жаңартыңыз.'
+          : 'Тақырыпты өшіру мүмкін болмады. Интернетті тексеріп, қайта көріңіз.'
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const publish = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!user || !isHomeroom) return;
     setBusy(true);
     setFormError('');
-    const createdAt = Date.now();
-    const topicRef = doc(collection(db, 'classHourTopics'));
-    const topic: ClassHourCustomTopic = {
-      id: topicRef.id,
+    const values = {
       month,
       week,
       direction: direction.trim(),
@@ -242,6 +358,30 @@ export default function ClassHourView() {
       about: about.trim(),
       points: points.split('\n').map((item) => item.trim()).filter(Boolean),
       questions: questions.split('\n').map((item) => item.trim()).filter(Boolean),
+    };
+
+    if (editingTopic) {
+      try {
+        await updateDoc(doc(db, 'classHourTopics', editingTopic.id), values);
+        setFormOpen(false);
+        clearForm();
+      } catch (error: any) {
+        setFormError(
+          error?.code === 'permission-denied'
+            ? 'Тақырыпты өзгертуге рұқсат жоқ. Firestore ережелерін жаңартыңыз.'
+            : 'Тақырыпты сақтау мүмкін болмады. Интернетті тексеріп, қайта көріңіз.'
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    const createdAt = Date.now();
+    const topicRef = doc(collection(db, 'classHourTopics'));
+    const topic: ClassHourCustomTopic = {
+      id: topicRef.id,
+      ...values,
       authorId: user.id,
       authorName: user.name,
       createdAt,
@@ -261,11 +401,7 @@ export default function ClassHourView() {
         authorName: topic.authorName,
         createdAt: topic.createdAt,
       });
-      setTitle('');
-      setAbout('');
-      setPoints('');
-      setQuestions('');
-      setDirection('');
+      clearForm();
     } catch (error: any) {
       setOptimisticTopics((items) => items.filter((item) => item.id !== topicRef.id));
       setFormError(
@@ -287,12 +423,18 @@ export default function ClassHourView() {
         icon={<HeartHandshake className="h-6 w-6" />}
         action={
           isHomeroom ? (
-            <button onClick={() => setFormOpen(true)} className="btn-primary">
+            <button onClick={openCreateForm} className="btn-primary">
               <Plus className="h-4 w-4" /> Тақырып қосу
             </button>
           ) : undefined
         }
       />
+
+      {deleteError && (
+        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs font-medium leading-relaxed text-rose-700">
+          {deleteError}
+        </p>
+      )}
 
       {/* Осы аптаның тақырыптары */}
       {cur && cur.topics.length > 0 && (
@@ -372,14 +514,25 @@ export default function ClassHourView() {
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
               {weeks.map((w) => (
-                <WeekBlock key={w.id} week={w} highlight={cur?.id === w.id} />
+                <WeekBlock
+                  key={w.id}
+                  week={w}
+                  highlight={cur?.id === w.id}
+                  onEdit={isHomeroom ? openEditForm : undefined}
+                  onDelete={isHomeroom ? removeTopic : undefined}
+                  deletingId={deletingId}
+                />
               ))}
             </div>
           </section>
         );
       })}
 
-      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="Тәрбие сағатына тақырып қосу">
+      <Modal
+        open={formOpen}
+        onClose={closeForm}
+        title={editingTopic ? 'Тәрбие сағатының тақырыбын өзгерту' : 'Тәрбие сағатына тақырып қосу'}
+      >
         <form onSubmit={publish} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -464,7 +617,9 @@ export default function ClassHourView() {
           )}
           <button type="submit" className="btn-primary w-full" disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            {MONTHS.find((item) => item.key === month)?.label}, {week}-аптаға қосу
+            {editingTopic
+              ? 'Өзгерістерді сақтау'
+              : `${MONTHS.find((item) => item.key === month)?.label}, ${week}-аптаға қосу`}
           </button>
         </form>
       </Modal>
