@@ -1,20 +1,33 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import {
   CLASS_HOUR_PLAN,
   DIRECTIONS,
   MONTHS,
-  TOTAL_TOPICS,
   currentWeek,
   isPastWeek,
   directionOf,
   monthLabel,
   type ClassHourWeek,
   type ClassHourTopic,
+  type ClassHourCustomTopic,
+  type MonthKey,
 } from '@/lib/class-hour-data';
-import { PageHeader } from '@/components/ui';
-import { HeartHandshake, ChevronDown, Target, HelpCircle, CheckCircle2, Sparkles } from 'lucide-react';
+import { Modal, PageHeader } from '@/components/ui';
+import { useApp, useCollection } from '@/lib/store';
+import { db } from '@/lib/firebase';
+import {
+  HeartHandshake,
+  ChevronDown,
+  Target,
+  HelpCircle,
+  CheckCircle2,
+  Sparkles,
+  Plus,
+  Loader2,
+} from 'lucide-react';
 
 function TopicCard({
   topic,
@@ -146,7 +159,125 @@ function WeekBlock({ week, highlight }: { week: ClassHourWeek; highlight: boolea
 }
 
 export default function ClassHourView() {
-  const cur = currentWeek();
+  const { user, isHomeroom } = useApp();
+  const { data: customTopics } = useCollection<ClassHourCustomTopic>(
+    'classHourTopics',
+    'createdAt',
+    'asc',
+    100
+  );
+  const staticCurrent = currentWeek();
+  const [formOpen, setFormOpen] = useState(false);
+  const [month, setMonth] = useState<MonthKey>(staticCurrent?.month ?? 'september');
+  const [week, setWeek] = useState(staticCurrent?.week ?? 1);
+  const [direction, setDirection] = useState('');
+  const [title, setTitle] = useState('');
+  const [about, setAbout] = useState('');
+  const [points, setPoints] = useState('');
+  const [questions, setQuestions] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [optimisticTopics, setOptimisticTopics] = useState<ClassHourCustomTopic[]>([]);
+
+  useEffect(() => {
+    if (!customTopics.length) return;
+    const serverIds = new Set(customTopics.map((topic) => topic.id));
+    setOptimisticTopics((items) => {
+      const pending = items.filter((topic) => !serverIds.has(topic.id));
+      return pending.length === items.length ? items : pending;
+    });
+  }, [customTopics]);
+
+  const visibleCustomTopics = useMemo(() => {
+    const serverIds = new Set(customTopics.map((topic) => topic.id));
+    return [
+      ...customTopics,
+      ...optimisticTopics.filter((topic) => !serverIds.has(topic.id)),
+    ];
+  }, [customTopics, optimisticTopics]);
+
+  const plan = useMemo<ClassHourWeek[]>(
+    () =>
+      MONTHS.flatMap((monthItem) =>
+        [1, 2, 3, 4].map((weekNumber) => {
+          const fixed = CLASS_HOUR_PLAN.find(
+            (item) => item.month === monthItem.key && item.week === weekNumber
+          );
+          return {
+            id: fixed?.id ?? `${monthItem.key}-${weekNumber}`,
+            month: monthItem.key,
+            week: weekNumber,
+            topics: [
+              ...(fixed?.topics ?? []),
+              ...visibleCustomTopics.filter(
+                (topic) => topic.month === monthItem.key && topic.week === weekNumber
+              ),
+            ],
+          };
+        })
+      ),
+    [visibleCustomTopics]
+  );
+  const cur = staticCurrent
+    ? plan.find(
+        (item) => item.month === staticCurrent.month && item.week === staticCurrent.week
+      ) ?? null
+    : null;
+  const totalTopics = plan.reduce((total, item) => total + item.topics.length, 0);
+  const weeksWithTopics = plan.filter((item) => item.topics.length > 0).length;
+
+  const publish = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user || !isHomeroom) return;
+    setBusy(true);
+    setFormError('');
+    const createdAt = Date.now();
+    const topicRef = doc(collection(db, 'classHourTopics'));
+    const topic: ClassHourCustomTopic = {
+      id: topicRef.id,
+      month,
+      week,
+      direction: direction.trim(),
+      title: title.trim(),
+      about: about.trim(),
+      points: points.split('\n').map((item) => item.trim()).filter(Boolean),
+      questions: questions.split('\n').map((item) => item.trim()).filter(Boolean),
+      authorId: user.id,
+      authorName: user.name,
+      createdAt,
+    };
+    setOptimisticTopics((items) => [...items, topic]);
+    setFormOpen(false);
+    try {
+      await setDoc(topicRef, {
+        month: topic.month,
+        week: topic.week,
+        direction: topic.direction,
+        title: topic.title,
+        about: topic.about,
+        points: topic.points,
+        questions: topic.questions,
+        authorId: topic.authorId,
+        authorName: topic.authorName,
+        createdAt: topic.createdAt,
+      });
+      setTitle('');
+      setAbout('');
+      setPoints('');
+      setQuestions('');
+      setDirection('');
+    } catch (error: any) {
+      setOptimisticTopics((items) => items.filter((item) => item.id !== topicRef.id));
+      setFormError(
+        error?.code === 'permission-denied'
+          ? 'Тақырып қосуға рұқсат жоқ. Жаңартылған Firestore ережелерін жариялаңыз.'
+          : 'Тақырыпты сақтау мүмкін болмады. Интернетті тексеріп, қайта көріңіз.'
+      );
+      setFormOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -154,10 +285,17 @@ export default function ClassHourView() {
         title="Тәрбие сағаты"
         subtitle="2026-2027 оқу жылының апталық тақырыптары"
         icon={<HeartHandshake className="h-6 w-6" />}
+        action={
+          isHomeroom ? (
+            <button onClick={() => setFormOpen(true)} className="btn-primary">
+              <Plus className="h-4 w-4" /> Тақырып қосу
+            </button>
+          ) : undefined
+        }
       />
 
       {/* Осы аптаның тақырыптары */}
-      {cur && (
+      {cur && cur.topics.length > 0 && (
         <section className="animate-fade-up relative overflow-hidden rounded-3xl bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 px-5 py-6 text-white shadow-lg shadow-sky-200 sm:px-8">
           <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/10" />
           <div className="relative">
@@ -191,7 +329,7 @@ export default function ClassHourView() {
         </h2>
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           {DIRECTIONS.map((d) => {
-            const count = CLASS_HOUR_PLAN.reduce(
+            const count = plan.reduce(
               (n, w) => n + w.topics.filter((t) => t.direction === d.key).length,
               0
             );
@@ -215,13 +353,13 @@ export default function ClassHourView() {
           })}
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Барлығы {CLASS_HOUR_PLAN.length} апта · {TOTAL_TOPICS} тақырып
+          Барлығы {weeksWithTopics} апта · {totalTopics} тақырып
         </p>
       </section>
 
       {/* Айлар бойынша толық жоспар */}
       {MONTHS.map((m, mi) => {
-        const weeks = CLASS_HOUR_PLAN.filter((w) => w.month === m.key);
+        const weeks = plan.filter((w) => w.month === m.key && w.topics.length > 0);
         if (!weeks.length) return null;
         return (
           <section key={m.key} className={`animate-fade-up delay-${Math.min(mi + 1, 4)} space-y-3`}>
@@ -240,6 +378,96 @@ export default function ClassHourView() {
           </section>
         );
       })}
+
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="Тәрбие сағатына тақырып қосу">
+        <form onSubmit={publish} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label">Ай</label>
+              <select
+                className="input"
+                value={month}
+                onChange={(event) => setMonth(event.target.value as MonthKey)}
+              >
+                {MONTHS.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Апта</label>
+              <select
+                className="input"
+                value={week}
+                onChange={(event) => setWeek(Number(event.target.value))}
+              >
+                {[1, 2, 3, 4].map((number) => (
+                  <option key={number} value={number}>{number}-апта</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">Бағыт</label>
+            <input
+              className="input"
+              value={direction}
+              onChange={(event) => setDirection(event.target.value)}
+              placeholder="Мысалы: Ұлттық құндылықтар"
+              maxLength={200}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Тақырып атауы</label>
+            <input
+              className="input"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={300}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Қысқаша түсіндірме</label>
+            <textarea
+              className="input min-h-24"
+              value={about}
+              onChange={(event) => setAbout(event.target.value)}
+              maxLength={3000}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Негізгі ойлар</label>
+            <textarea
+              className="input min-h-24"
+              value={points}
+              onChange={(event) => setPoints(event.target.value)}
+              placeholder="Әр ойды жаңа жолдан жазыңыз"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">Әр жол жеке тармақ болып көрсетіледі.</p>
+          </div>
+          <div>
+            <label className="label">Талқылау сұрақтары</label>
+            <textarea
+              className="input min-h-24"
+              value={questions}
+              onChange={(event) => setQuestions(event.target.value)}
+              placeholder="Әр сұрақты жаңа жолдан жазыңыз"
+            />
+          </div>
+          {formError && (
+            <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
+              {formError}
+            </p>
+          )}
+          <button type="submit" className="btn-primary w-full" disabled={busy}>
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            {MONTHS.find((item) => item.key === month)?.label}, {week}-аптаға қосу
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }

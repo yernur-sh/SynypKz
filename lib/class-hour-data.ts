@@ -1,10 +1,11 @@
 // Тәрбие сағаты — 2026-2027 оқу жылының бекітілген тақырыптары.
-// ⚠️ Мазмұн тек осы файл арқылы өзгертіледі (сайттан қосылмайды).
+// Бекітілген тақырыптар осы файлда, ал сынып жетекшісі сайттан қосқан
+// тақырыптар Firestore-дағы `classHourTopics` коллекциясында сақталады.
 // Дереккөз: сынып жетекшісі берген айлық жоспар (қыркүйек – желтоқсан).
 
 export interface ClassHourTopic {
-  /** Бағыт кілті (DIRECTIONS ішінен) */
-  direction: DirectionKey;
+  /** Бекітілген бағыт кілті немесе сынып жетекшісі еркін жазған бағыт */
+  direction: string;
   /** Тақырыптың атауы */
   title: string;
   /** Тақырып туралы қысқаша түсіндірме */
@@ -24,7 +25,26 @@ export interface ClassHourWeek {
   topics: ClassHourTopic[];
 }
 
-export type MonthKey = 'september' | 'october' | 'november' | 'december';
+/** Сынып жетекшісі сайттан қосқан тәрбие сағаты тақырыбы. */
+export interface ClassHourCustomTopic extends ClassHourTopic {
+  id: string;
+  month: MonthKey;
+  week: number;
+  authorId: string;
+  authorName: string;
+  createdAt: number;
+}
+
+export type MonthKey =
+  | 'september'
+  | 'october'
+  | 'november'
+  | 'december'
+  | 'january'
+  | 'february'
+  | 'march'
+  | 'april'
+  | 'may';
 export type DirectionKey = 'taza' | 'law' | 'career' | 'safety' | 'traffic' | 'dosbol';
 
 /** Тәрбие жұмысының бағыттары. */
@@ -98,10 +118,23 @@ export const MONTHS: { key: MonthKey; label: string; index: number }[] = [
   { key: 'october', label: 'Қазан', index: 9 },
   { key: 'november', label: 'Қараша', index: 10 },
   { key: 'december', label: 'Желтоқсан', index: 11 },
+  { key: 'january', label: 'Қаңтар', index: 0 },
+  { key: 'february', label: 'Ақпан', index: 1 },
+  { key: 'march', label: 'Наурыз', index: 2 },
+  { key: 'april', label: 'Сәуір', index: 3 },
+  { key: 'may', label: 'Мамыр', index: 4 },
 ];
 
-export function directionOf(key: DirectionKey) {
-  return DIRECTIONS.find((d) => d.key === key) ?? DIRECTIONS[0];
+export function directionOf(key: string) {
+  return DIRECTIONS.find((d) => d.key === key) ?? {
+    key,
+    label: key,
+    short: key,
+    emoji: '📌',
+    gradient: 'from-indigo-400 to-violet-500',
+    soft: 'bg-indigo-50 border-indigo-100',
+    text: 'text-indigo-700',
+  };
 }
 
 export function monthLabel(key: MonthKey) {
@@ -829,26 +862,40 @@ export function currentWeek(date = new Date()): ClassHourWeek | null {
   const month = MONTHS.find((m) => m.index === monthIndex);
   if (!month) return null;
   const week = Math.min(4, Math.ceil(date.getDate() / 7));
-  return CLASS_HOUR_PLAN.find((w) => w.month === month.key && w.week === week) ?? null;
+  return CLASS_HOUR_PLAN.find((w) => w.month === month.key && w.week === week) ?? {
+    id: `${month.key}-${week}`,
+    month: month.key,
+    week,
+    topics: [],
+  };
 }
 
 /** Кезекті (алдағы) апта. */
 export function nextWeek(date = new Date()): ClassHourWeek | null {
   const cur = currentWeek(date);
-  if (!cur) {
-    // Оқу жылы басталмаған/аяқталған кезде — жоспардың бірінші аптасы
-    const monthIndex = date.getMonth();
-    return monthIndex < 8 ? CLASS_HOUR_PLAN[0] : CLASS_HOUR_PLAN[0];
-  }
-  const i = CLASS_HOUR_PLAN.findIndex((w) => w.id === cur.id);
-  return CLASS_HOUR_PLAN[i + 1] ?? null;
+  const fullYear = MONTHS.flatMap((month) =>
+    [1, 2, 3, 4].map(
+      (week): ClassHourWeek =>
+        CLASS_HOUR_PLAN.find((item) => item.month === month.key && item.week === week) ?? {
+          id: `${month.key}-${week}`,
+          month: month.key,
+          week,
+          topics: [],
+        }
+    )
+  );
+  if (!cur) return fullYear[0];
+  const index = fullYear.findIndex(
+    (item) => item.month === cur.month && item.week === cur.week
+  );
+  return fullYear[index + 1] ?? null;
 }
 
 /** Апта өтіп кетті ме? */
 export function isPastWeek(w: ClassHourWeek, date = new Date()): boolean {
-  const month = MONTHS.find((m) => m.key === w.month)!;
-  const cur = date.getMonth();
-  if (cur > month.index) return true;
-  if (cur < month.index) return false;
+  const monthPosition = MONTHS.findIndex((m) => m.key === w.month);
+  const currentPosition = MONTHS.findIndex((m) => m.index === date.getMonth());
+  if (currentPosition > monthPosition) return true;
+  if (currentPosition < monthPosition) return false;
   return Math.ceil(date.getDate() / 7) > w.week;
 }

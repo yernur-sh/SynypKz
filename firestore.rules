@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     function isHomeroom() {
-      return signedIn() && userDoc().isHomeroom == true;
+      return signedIn() && request.auth.token.email == 'nurmankyzy83@mail.ru';
     }
 
     // Профильдер
@@ -38,6 +38,42 @@ service cloud.firestore {
       allow update, delete: if isHomeroom()
         || isTeacher()
         || (signedIn() && resource.data.authorId == request.auth.uid);
+    }
+
+    // Тәрбие сағатының қосымша тақырыптарын тек сынып жетекшісі басқарады.
+    match /classHourTopics/{id} {
+      allow read: if true;
+      allow create: if isHomeroom()
+        && request.resource.data.keys().hasOnly([
+          'month', 'week', 'direction', 'title', 'about', 'points', 'questions',
+          'authorId', 'authorName', 'createdAt'
+        ])
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.month in [
+          'september', 'october', 'november', 'december',
+          'january', 'february', 'march', 'april',
+          'may'
+        ]
+        && request.resource.data.week is int
+        && request.resource.data.week >= 1
+        && request.resource.data.week <= 4
+        && request.resource.data.direction is string
+        && request.resource.data.direction.size() > 0
+        && request.resource.data.direction.size() <= 200
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+        && request.resource.data.about is string
+        && request.resource.data.about.size() <= 3000
+        && request.resource.data.points is list
+        && request.resource.data.points.size() <= 20
+        && request.resource.data.questions is list
+        && request.resource.data.questions.size() <= 20
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() > 0
+        && request.resource.data.authorName.size() <= 200
+        && request.resource.data.createdAt is int;
+      allow update, delete: if isHomeroom();
     }
 
     // Үй тапсырмасы
