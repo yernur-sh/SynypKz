@@ -23,11 +23,9 @@ export function envKey(name: string): string | null {
 /** Резервтегі модельдер — біреуі жарамсыз болса, келесісі сыналады. */
 const FALLBACKS: Record<Provider['name'], string[]> = {
   groq: [
-    'llama-3.3-70b-versatile',
-    'llama-3.1-8b-instant',
-    'openai/gpt-oss-20b',
     'openai/gpt-oss-120b',
-    'gemma2-9b-it',
+    'openai/gpt-oss-20b',
+    'qwen/qwen3.8-27b',
   ],
   openai: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-3.5-turbo'],
   openrouter: ['openai/gpt-4o-mini', 'meta-llama/llama-3.3-70b-instruct'],

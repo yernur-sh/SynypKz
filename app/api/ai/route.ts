@@ -15,6 +15,14 @@ interface InMsg {
   content: string;
 }
 
+// Бір рет сәтті жұмыс істеген модельді келесі сұрауда бірінші қолданамыз.
+const workingModels = new Map<Provider['name'], string>();
+
+function isChatModel(model: string) {
+  return /llama|gpt|gemma|gemini|mistral|qwen/i.test(model)
+    && !/whisper|tts|guard|embed|vision-preview/i.test(model);
+}
+
 function sse(data: unknown) {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
@@ -73,7 +81,11 @@ export async function POST(req: NextRequest) {
   ];
 
   // Модельдерді кезекпен сынау: AI_MODEL → резервтегілер → провайдер тізімінен нақты қолжетімдісі
-  const candidates = [...provider.models];
+  const remembered = workingModels.get(provider.name);
+  const candidates = remembered
+    ? [remembered, ...provider.models.filter((model) => model !== remembered)]
+    : [...provider.models];
+  const attempted = new Set<string>();
   let upstream: Response | null = null;
   let lastStatus = 0;
   let lastText = '';
@@ -81,6 +93,7 @@ export async function POST(req: NextRequest) {
 
   for (let i = 0; i < candidates.length; i++) {
     const model = candidates[i];
+    attempted.add(model);
     let res: Response;
     try {
       res = await callModel(provider, model, messages);
@@ -91,23 +104,27 @@ export async function POST(req: NextRequest) {
     if (res.ok && res.body) {
       upstream = res;
       usedModel = model;
+      workingModels.set(provider.name, model);
       break;
     }
 
     lastStatus = res.status;
     lastText = await res.text().catch(() => '');
-    console.error(`AI provider error [${provider.name}/${model}]`, res.status, lastText.slice(0, 300));
-
-    // Модельге қатысты қате болса — келесі үміткерді сынаймыз
+    // Ескірген модель болса, Groq тізімінен қолжетімдісін бірден таңдаймыз.
     if (isModelError(res.status, lastText)) {
-      // Тізім таусылғанда провайдердің нақты модельдерін сұрап көреміз
-      if (i === candidates.length - 1) {
-        const available = await listModels(provider);
-        const picked = available.find((m) => /llama|gpt|gemma|gemini|mistral|qwen/i.test(m) && !/whisper|tts|guard|embed/i.test(m));
-        if (picked && !candidates.includes(picked)) candidates.push(picked);
+      if (workingModels.get(provider.name) === model) workingModels.delete(provider.name);
+      const available = (await listModels(provider)).filter(isChatModel);
+      if (available.length) {
+        const next = [
+          ...provider.models.filter((candidate) => available.includes(candidate)),
+          ...available.filter((candidate) => !provider.models.includes(candidate)),
+        ].filter((candidate) => !attempted.has(candidate));
+        candidates.splice(i + 1, candidates.length - i - 1, ...next);
       }
       continue;
     }
+
+    console.error(`AI provider error [${provider.name}/${model}]`, res.status, lastText.slice(0, 300));
 
     // Кілт қате / лимит / сервер қатесі — қайталаудың мәні жоқ
     break;

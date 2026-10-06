@@ -16,8 +16,8 @@ export interface AskOptions {
   userName?: string;
   role?: string;
   signal?: AbortSignal;
-  /** Әр жаңа үзінді келгенде шақырылады (ағынды жазу эффекті). */
-  onDelta: (chunk: string) => void;
+  /** Ағын үзіндісі немесе дайын жауаппен толық ауыстыру. */
+  onDelta: (chunk: string, replace?: boolean) => void;
 }
 
 export type OfflineReason =
@@ -48,6 +48,13 @@ export async function askAssistant(opts: AskOptions): Promise<AskResult> {
     return { mode: 'blocked', text: verdict.reply };
   }
 
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+  // Қорғау кезінде ұзақ күтіп қалмас үшін уақытында дайын жауапқа ауысамыз.
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+
   try {
     const res = await fetch('/api/ai', {
       method: 'POST',
@@ -57,7 +64,7 @@ export async function askAssistant(opts: AskOptions): Promise<AskResult> {
         userName: opts.userName,
         role: opts.role,
       }),
-      signal: opts.signal,
+      signal: controller.signal,
     });
 
     if (!res.ok || !res.body) {
@@ -72,7 +79,7 @@ export async function askAssistant(opts: AskOptions): Promise<AskResult> {
         /* ignore */
       }
       const text = offlineAnswer(question);
-      opts.onDelta(text);
+      opts.onDelta(text, true);
       return { mode: 'offline', text, reason, detail };
     }
 
@@ -80,6 +87,7 @@ export async function askAssistant(opts: AskOptions): Promise<AskResult> {
     const dec = new TextDecoder();
     let buffer = '';
     let text = '';
+    let completed = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -96,19 +104,23 @@ export async function askAssistant(opts: AskOptions): Promise<AskResult> {
             text += json.delta;
             opts.onDelta(json.delta);
           }
+          if (json.done) completed = true;
         } catch {
           /* ignore */
         }
       }
     }
 
-    if (!text.trim()) throw new Error('empty_answer');
+    if (!completed || !text.trim()) throw new Error('incomplete_answer');
     return { mode: 'ai', text };
   } catch (e) {
-    if ((e as Error)?.name === 'AbortError') throw e;
+    if (opts.signal?.aborted) throw e;
     // Fallback — сынып деректері негізіндегі офлайн жауап
     const text = offlineAnswer(question);
-    opts.onDelta(text);
+    opts.onDelta(text, true);
     return { mode: 'offline', text, reason: 'network' };
+  } finally {
+    clearTimeout(timeout);
+    opts.signal?.removeEventListener('abort', onAbort);
   }
 }

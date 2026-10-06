@@ -6,7 +6,7 @@ import { type ChatMessage } from '@/lib/assistant';
 import { askAssistant } from '@/lib/ai-client';
 import { latexToReadable } from '@/lib/math-text';
 import { PageHeader, Avatar } from '@/components/ui';
-import { Sparkles, Send, Bot, RotateCcw, Square, WifiOff } from 'lucide-react';
+import { Sparkles, Send, Bot, RotateCcw, Square } from 'lucide-react';
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -73,9 +73,6 @@ export default function AiAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([greeting]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
-  const [offline, setOffline] = useState(false);
-  const [offlineReason, setOfflineReason] = useState<string | null>(null);
-  const [offlineDetail, setOfflineDetail] = useState<string>('');
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -114,19 +111,16 @@ export default function AiAssistant() {
     abortRef.current = controller;
 
     try {
-      const res = await askAssistant({
+      await askAssistant({
         messages: history,
         userName: user?.name,
         role: user?.role,
         signal: controller.signal,
-        onDelta: (chunk) =>
+        onDelta: (chunk, replace) =>
           setMessages((m) =>
-            m.map((msg) => (msg.id === replyId ? { ...msg, content: msg.content + chunk } : msg))
+            m.map((msg) => (msg.id === replyId ? { ...msg, content: replace ? chunk : msg.content + chunk } : msg))
           ),
       });
-      setOffline(res.mode === 'offline');
-      setOfflineReason(res.mode === 'offline' ? res.reason ?? null : null);
-      setOfflineDetail(res.mode === 'offline' ? res.detail ?? '' : '');
     } catch {
       /* тоқтатылды */
     } finally {
@@ -160,55 +154,6 @@ export default function AiAssistant() {
         }
       />
 
-      {offline && (
-        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium leading-relaxed text-amber-800">
-          <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            {offlineReason === 'no_provider' ? (
-              <>
-                <b>ЖИ кілті бапталмаған.</b> Жоба түбінде{' '}
-                <code className="rounded bg-amber-100 px-1">.env.local</code> файлын жасап, кілт қосыңыз
-                (мыс. <code className="rounded bg-amber-100 px-1">GROQ_API_KEY=...</code>), сосын серверді
-                қайта іске қосыңыз.
-              </>
-            ) : offlineReason === 'bad_key' ? (
-              <>
-                <b>Кілт жарамсыз.</b> console.groq.com сайтынан жаңа кілт жасап,{' '}
-                <code className="rounded bg-amber-100 px-1">.env.local</code> ішіне қойыңыз да, серверді
-                қайта қосыңыз.
-              </>
-            ) : offlineReason === 'rate_limit' ? (
-              <>
-                <b>Лимит бітті.</b> Тегін жоспардың сағаттық/тәуліктік шегіне жеттіңіз — біраз күтіп,
-                қайта сұраңыз.
-              </>
-            ) : offlineReason === 'model_not_found' ? (
-              <>
-                <b>Модель табылмады.</b>{' '}
-                <code className="rounded bg-amber-100 px-1">.env.local</code> ішіндегі{' '}
-                <code className="rounded bg-amber-100 px-1">AI_MODEL</code> жолын өшіріңіз — жүйе жарамды
-                модельді өзі таңдайды. Тексеру:{' '}
-                <a className="underline" href="/api/ai/status?live=1" target="_blank" rel="noreferrer">
-                  /api/ai/status?live=1
-                </a>
-              </>
-            ) : offlineReason === 'upstream_error' ? (
-              <>
-                <b>ЖИ қызметі жауап бермеді.</b> Тексеру:{' '}
-                <a className="underline" href="/api/ai/status?live=1" target="_blank" rel="noreferrer">
-                  /api/ai/status?live=1
-                </a>
-              </>
-            ) : (
-              <>Интернет байланысы үзілді — көмекші офлайн режимде жауап беруде.</>
-            )}
-            {offlineDetail && (
-              <span className="mt-1 block font-normal text-amber-700/80">{offlineDetail}</span>
-            )}
-          </span>
-        </div>
-      )}
-
       <div className="mx-auto w-full max-w-4xl">
         {/* Чат */}
         <section className="card animate-fade-up flex h-[72vh] min-h-[520px] flex-col overflow-hidden">
@@ -219,11 +164,7 @@ export default function AiAssistant() {
             <div className="min-w-0">
               <p className="font-bold">SynypKz көмекшісі</p>
               <p className="text-[11px] text-white/80">
-                {typing
-                  ? 'жазып жатыр…'
-                  : offline
-                  ? 'офлайн режим · сынып деректері бойынша жауап береді'
-                  : 'онлайн · жасанды интеллект + сынып деректері'}
+                {typing ? 'жазып жатыр…' : 'Оқу және сынып сұрақтарына жауап береді'}
               </p>
             </div>
           </header>
