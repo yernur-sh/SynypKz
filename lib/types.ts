@@ -13,6 +13,15 @@ export interface UserProfile {
   createdAt?: number;
 }
 
+export type MoodValue = 'happy' | 'calm' | 'sad' | 'angry' | 'tired' | 'anxious';
+
+export interface StudentMood {
+  id: string; // studentId
+  date: string; // YYYY-MM-DD, Asia/Almaty
+  mood: MoodValue;
+  updatedAt: number;
+}
+
 export interface Announcement {
   id: string;
   title: string;

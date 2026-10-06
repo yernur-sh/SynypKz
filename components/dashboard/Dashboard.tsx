@@ -8,6 +8,7 @@ import { CLASS_LABEL, subjectGradient } from '@/lib/config';
 import { TOTAL_LESSONS, todayKey, dayLabel, lessonsFor, nextSchoolDayKey } from '@/lib/schedule-data';
 import { EmptyState, formatDate } from '@/components/ui';
 import MembersList from '@/components/dashboard/MembersList';
+import DailyMood from '@/components/dashboard/DailyMood';
 import { ACHIEVEMENTS } from '@/lib/achievements-data';
 import { canAccess } from '@/lib/access';
 import {
@@ -67,6 +68,8 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      <DailyMood />
 
       {/* Статистика */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
